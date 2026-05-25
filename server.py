@@ -40,6 +40,10 @@ PERSON_CONF_THRESHOLD: float = 0.15
 VERBOSE: bool = False
 _INFER_LOCK = threading.Lock()
 
+# Ultralytics' default tracker. "bytetrack.yaml" is faster + lighter than
+# "botsort.yaml" and good enough for a single-camera, low-clutter setup.
+TRACKER_CONFIG = "bytetrack.yaml"
+
 
 def _is_fall_class(name: str) -> bool:
     """Match any class whose lowercased name contains a fall keyword.
@@ -61,7 +65,16 @@ def detect_falls(jpeg_bytes: bytes) -> dict:
 
     t0 = time.perf_counter()
     with _INFER_LOCK:
-        results = MODEL(frame, save=False, verbose=False)
+        # `persist=True` keeps tracker state across calls so the same person
+        # keeps the same ID frame-to-frame. Ultralytics' default tracker
+        # (configured via TRACKER_CONFIG) handles ID assignment.
+        results = MODEL.track(
+            frame,
+            persist=True,
+            tracker=TRACKER_CONFIG,
+            save=False,
+            verbose=False,
+        )
     infer_ms = (time.perf_counter() - t0) * 1000
 
     people: list[dict] = []
@@ -95,11 +108,21 @@ def detect_falls(jpeg_bytes: bytes) -> dict:
             if is_fall:
                 falling = True
 
+            # box.id is a tensor when the tracker has assigned one, else None
+            # (e.g. very first frames before the tracker initialises).
+            track_id: int | None = None
+            if getattr(box, "id", None) is not None:
+                try:
+                    track_id = int(box.id[0])
+                except Exception:
+                    track_id = None
+
             people.append({
                 "class": cls_name,
                 "confidence": round(conf, 3),
                 "bbox": [x1, y1, x2, y2],
                 "is_falling": is_fall,
+                "track_id": track_id,
             })
 
     if VERBOSE:
