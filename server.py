@@ -74,6 +74,7 @@ def detect_falls(jpeg_bytes: bytes) -> dict:
             tracker=TRACKER_CONFIG,
             save=False,
             verbose=False,
+            imgsz=320
         )
     infer_ms = (time.perf_counter() - t0) * 1000
 
